@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-15
+
+### Fixed
+
+- Scan-position overlay on the fundus image was vertically inverted: the
+  line shown for the current B-scan didn't match its actual location
+  (caught by comparing blood vessel landmarks visible in both images)
+
 ## [0.1.1] - 2026-07-15
 
 ### Added
