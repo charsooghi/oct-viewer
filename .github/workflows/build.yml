@@ -64,15 +64,32 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Extract changelog section for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+            /^## \[/ { flag=0 }
+            flag
+          ' CHANGELOG.md > release_notes.md
+          cat release_notes.md
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          if [ -s release_notes.md ]; then
+            NOTES_FLAG=(--notes-file release_notes.md)
+          else
+            NOTES_FLAG=(--generate-notes)
+          fi
           gh release create "${{ github.ref_name }}" artifacts/*/*.zip \
             --title "${{ github.ref_name }}" \
-            --generate-notes
+            "${NOTES_FLAG[@]}"

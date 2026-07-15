@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt, QThread, Signal, QLineF, QRectF
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import Qt, QThread, Signal, QLineF, QRectF, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -23,11 +23,13 @@ from PySide6.QtWidgets import (
     QGroupBox,
 )
 
+from .._version import __version__
 from ..models import Study, Series
 from ..parser import load_e2e
 from .image_view import ImageView
 from .popout_dialog import PopoutDialog
 from .info_dialog import InfoDialog
+from .update_check import UpdateCheckWorker
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +63,7 @@ class LoadWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("OCT Viewer")
+        self.setWindowTitle(f"OCT Viewer v{__version__}")
         self.resize(1400, 900)
 
         self._study: Study | None = None
@@ -75,6 +77,22 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu()
+        self._start_update_check()
+
+    def _start_update_check(self):
+        self._update_worker = UpdateCheckWorker(self)
+        self._update_worker.update_available.connect(self._on_update_available)
+        self._update_worker.start()
+
+    def _on_update_available(self, latest_tag: str, release_url: str):
+        box = QMessageBox(self)
+        box.setWindowTitle("Update Available")
+        box.setText(f"A new version ({latest_tag}) is available.\nYou're running v{__version__}.")
+        open_btn = box.addButton("Open Download Page", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl(release_url))
 
     # ---------------------------------------------------------------- UI
 
