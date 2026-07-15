@@ -11,6 +11,11 @@ open it with.
 > HEYEX software, and some files or scan types may not be fully supported.
 > Do not use this for clinical diagnosis or treatment decisions.
 
+> **Trademark notice:** "HEYEX" and "Spectralis" are trademarks of Heidelberg
+> Engineering GmbH. This project is an independent, community effort and is
+> **not affiliated with, endorsed by, or sponsored by Heidelberg Engineering**.
+> Those names are used here only to describe file-format compatibility.
+
 ## Features
 
 - Open a `.e2e` file and browse every patient/series it contains
