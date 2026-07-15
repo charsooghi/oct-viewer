@@ -1,0 +1,75 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --onedir --windowed \
+            --name "OCT Viewer" \
+            --paths src \
+            --collect-all oct_converter \
+            --collect-all eyepy \
+            --copy-metadata imageio \
+            --hidden-import PySide6.QtSvg \
+            src/run_app.py
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/OCT Viewer" -DestinationPath "dist/OCT-Viewer-Windows.zip"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd dist
+          zip -r "OCT-Viewer-macOS.zip" "OCT Viewer.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OCT-Viewer-${{ runner.os }}
+          path: dist/OCT-Viewer-*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" artifacts/*/*.zip \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
