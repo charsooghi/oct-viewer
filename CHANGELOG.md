@@ -5,6 +5,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-15
+
+### Fixed
+
+- The app's built-in version number wasn't being updated when a new release
+  was tagged, so the in-app "update available" notice could fire even when
+  you were already running the latest version. The version is now stamped
+  in automatically from the release tag at build time, instead of being
+  tracked by hand.
+
 ## [0.1.2] - 2026-07-15
 
 ### Fixed
