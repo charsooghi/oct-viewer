@@ -390,7 +390,10 @@ class MainWindow(QMainWindow):
         sx, sy = series.fundus_scale
         h, w = series.fundus.shape[:2]
         px = w / 2 + x_mm / sx
-        py = h / 2 - y_mm / sy
+        # Row direction was verified inverted against real vessel landmarks
+        # (the top scan line was landing on the bottom B-scan) - +y_mm maps
+        # to a larger row, not a smaller one.
+        py = h / 2 + y_mm / sy
         return px, py
 
     @classmethod
