@@ -2,7 +2,6 @@ name: Build
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch: {}
 
@@ -73,8 +72,13 @@ jobs:
       - name: Extract changelog section for this version
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          # Ubuntu's default `awk` is mawk, which mishandles backslash-escaped
+          # brackets built via string concatenation (silently turns "\[" into
+          # a bare "[", i.e. a regex bracket-expression, never matching) - use
+          # index()-based literal substring matching instead, which sidesteps
+          # escaping entirely.
           awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+            index($0, "## [" ver "]") == 1 { flag=1; next }
             /^## \[/ { flag=0 }
             flag
           ' CHANGELOG.md > release_notes.md
