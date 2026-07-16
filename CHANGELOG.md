@@ -13,7 +13,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   via oct-converter but is not needed for .e2e viewing; it required macOS 14+
   and missing dylibs (e.g. OpenEXR). cv2 is now stubbed at runtime and excluded
   from the frozen app. Also stopped collecting the entire oct-converter package
-  (and pydicom) to shrink the universal build.
+  (and pydicom / imageio_ffmpeg) to shrink the universal build and avoid
+  arch-specific sidecar binaries that broke the universal merge.
 
 ## [0.1.4] - 2026-07-16
 

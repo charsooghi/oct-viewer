@@ -48,6 +48,7 @@ jobs:
             --hidden-import PySide6.QtSvg \
             --exclude-module cv2 \
             --exclude-module pydicom \
+            --exclude-module imageio_ffmpeg \
             --exclude-module tkinter \
             src/run_app.py
 
@@ -67,6 +68,7 @@ jobs:
             --hidden-import PySide6.QtSvg
             --exclude-module cv2
             --exclude-module pydicom
+            --exclude-module imageio_ffmpeg
             --exclude-module tkinter
           )
 
