@@ -22,6 +22,15 @@ if [[ ! -d "$ARM_APP" || ! -d "$X86_APP" ]]; then
   exit 1
 fi
 
+echo "Checking bundle layouts match..."
+ARM_LIST="$(cd "$ARM_APP" && find . -type f | sort)"
+X86_LIST="$(cd "$X86_APP" && find . -type f | sort)"
+if [[ "$ARM_LIST" != "$X86_LIST" ]]; then
+  echo "ERROR: arm64 and x86_64 app bundles have different file layouts." >&2
+  diff <(echo "$ARM_LIST") <(echo "$X86_LIST") >&2 || true
+  exit 1
+fi
+
 rm -rf "$OUT_APP"
 cp -R "$ARM_APP" "$OUT_APP"
 
@@ -39,8 +48,8 @@ merge_file() {
     return 0
   fi
   if [[ ! -f "$x86_file" ]] || ! is_macho "$x86_file"; then
-    echo "WARNING: no matching Mach-O for $rel in x86_64 bundle; keeping arm64-only." >&2
-    return 0
+    echo "ERROR: Mach-O $rel has no x86_64 counterpart to merge." >&2
+    exit 1
   fi
 
   local tmp="${out_file}.universal"
@@ -55,9 +64,16 @@ while IFS= read -r -d '' arm_file; do
   merge_file "$rel"
 done < <(find "$OUT_APP" -type f -print0)
 
-echo "Re-signing universal app bundle..."
-codesign --force --deep --sign - "$OUT_APP"
+echo "Re-signing universal app bundle (inner binaries first)..."
+while IFS= read -r -d '' macho_file; do
+  codesign --force --sign - --timestamp=none "$macho_file"
+done < <(find "$OUT_APP/Contents" -type f -print0 | while IFS= read -r -d '' f; do
+  if is_macho "$f"; then printf '%s\0' "$f"; fi
+done)
+
+codesign --force --sign - --timestamp=none "$OUT_APP"
 
 echo "Verifying main executable..."
 MAIN_EXEC="$OUT_APP/Contents/MacOS/OCT Viewer"
 lipo -info "$MAIN_EXEC"
+codesign --verify --deep --strict "$OUT_APP"

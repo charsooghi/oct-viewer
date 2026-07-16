@@ -38,9 +38,37 @@ for the latest commit).
 
 **macOS note:** builds are universal binaries that run on both Apple Silicon
 (M1/M2/…) and Intel Macs. They are not code-signed/notarized (that requires a
-paid Apple Developer account). On first launch, **right-click the app > Open**,
-then click **Open** in the dialog - double-clicking will refuse to open an
-unsigned app the first time.
+paid Apple Developer account), so macOS Gatekeeper will block the app the
+first time you launch it.
+
+**First launch (pick one method):**
+
+1. **Right-click > Open** (not double-click): right-click `OCT Viewer.app`,
+   choose **Open**, then click **Open** again in the warning dialog.
+2. If you still see *"the developer cannot be verified"*, macOS has quarantined
+   the download. Open **Terminal** and run (adjust the path if needed):
+
+   ```bash
+   xattr -cr ~/Downloads/OCT\ Viewer.app
+   ```
+
+   Then right-click the app > **Open** again.
+3. Or: try to open the app once (it will fail), then go to **System Settings >
+   Privacy & Security**, scroll down, and click **Open Anyway** next to OCT
+   Viewer.
+
+After the first successful launch, you can open it normally by double-clicking.
+
+**App bounces in the Dock then disappears?** The app is crashing on launch.
+Open **Terminal**, run (adjust the path), and paste the output when reporting
+issues:
+
+```bash
+~/Downloads/OCT\ Viewer.app/Contents/MacOS/OCT\ Viewer
+```
+
+That prints the real error (missing library, architecture mismatch, etc.)
+instead of failing silently.
 
 ## Running from source
 

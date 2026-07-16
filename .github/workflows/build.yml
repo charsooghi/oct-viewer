@@ -40,10 +40,15 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed \
             --name "OCT Viewer" \
             --paths src \
-            --collect-all oct_converter \
             --collect-all eyepy \
             --copy-metadata imageio \
+            --hidden-import oct_converter.readers.e2e \
+            --hidden-import oct_converter.readers.binary_structs.e2e_binary \
+            --hidden-import construct \
             --hidden-import PySide6.QtSvg \
+            --exclude-module cv2 \
+            --exclude-module pydicom \
+            --exclude-module tkinter \
             src/run_app.py
 
       - name: Build universal macOS app
@@ -54,24 +59,29 @@ jobs:
             --noconfirm --onedir --windowed
             --name "OCT Viewer"
             --paths src
-            --collect-all oct_converter
             --collect-all eyepy
             --copy-metadata imageio
+            --hidden-import oct_converter.readers.e2e
+            --hidden-import oct_converter.readers.binary_structs.e2e_binary
+            --hidden-import construct
             --hidden-import PySide6.QtSvg
+            --exclude-module cv2
+            --exclude-module pydicom
+            --exclude-module tkinter
           )
 
           python3 -m venv .venv-arm64
           source .venv-arm64/bin/activate
-          pip install --no-cache-dir -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller
           pyinstaller "${PYI_ARGS[@]}" --target-arch arm64 src/run_app.py
           mv "dist/OCT Viewer.app" "dist/OCT Viewer-arm64.app"
           deactivate
           rm -rf build "OCT Viewer.spec"
 
-          # Run the full x86_64 toolchain under Rosetta and bypass pip's wheel
-          # cache, which otherwise reuses arm64 wheels from the arm64 venv.
+          # Separate pip cache per arch: arm64 can cache; x86 must not reuse arm64 wheels.
           arch -x86_64 python3 -m venv .venv-x86
           source .venv-x86/bin/activate
+          export PIP_CACHE_DIR="$RUNNER_TEMP/pip-cache-x86"
           arch -x86_64 pip install --no-cache-dir -r requirements.txt pyinstaller
           file .venv-x86/lib/python3.11/site-packages/numpy/_core/_multiarray_umath.cpython-311-darwin.so
           arch -x86_64 pyinstaller --clean "${PYI_ARGS[@]}" --target-arch x86_64 src/run_app.py
@@ -82,6 +92,7 @@ jobs:
             "dist/OCT Viewer-arm64.app" \
             "dist/OCT Viewer-x86_64.app" \
             "dist/OCT Viewer.app"
+          bash scripts/verify_universal_app.sh "dist/OCT Viewer.app"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'

@@ -19,8 +19,10 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+import oct_viewer._stubs  # noqa: F401 - stub cv2 before oct-converter image_types load
 from eyepy.io.he.e2e_reader import HeE2eReader
-from oct_converter.readers import E2E
+from oct_converter.readers.e2e import E2E
 
 from .models import BScanPosition, Patient, Series, Study
 
