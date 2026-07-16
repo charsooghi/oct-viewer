@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: ${{ runner.os == 'Windows' && 'pip' || '' }}
           cache-dependency-path: requirements.txt
 
       - name: Install dependencies (Windows)
@@ -62,15 +62,19 @@ jobs:
 
           python3 -m venv .venv-arm64
           source .venv-arm64/bin/activate
-          pip install -r requirements.txt pyinstaller
+          pip install --no-cache-dir -r requirements.txt pyinstaller
           pyinstaller "${PYI_ARGS[@]}" --target-arch arm64 src/run_app.py
           mv "dist/OCT Viewer.app" "dist/OCT Viewer-arm64.app"
           deactivate
+          rm -rf build "OCT Viewer.spec"
 
+          # Run the full x86_64 toolchain under Rosetta and bypass pip's wheel
+          # cache, which otherwise reuses arm64 wheels from the arm64 venv.
           arch -x86_64 python3 -m venv .venv-x86
           source .venv-x86/bin/activate
-          pip install -r requirements.txt pyinstaller
-          arch -x86_64 pyinstaller "${PYI_ARGS[@]}" --target-arch x86_64 src/run_app.py
+          arch -x86_64 pip install --no-cache-dir -r requirements.txt pyinstaller
+          file .venv-x86/lib/python3.11/site-packages/numpy/_core/_multiarray_umath.cpython-311-darwin.so
+          arch -x86_64 pyinstaller --clean "${PYI_ARGS[@]}" --target-arch x86_64 src/run_app.py
           mv "dist/OCT Viewer.app" "dist/OCT Viewer-x86_64.app"
           deactivate
 
