@@ -102,6 +102,20 @@ The build appears under `dist/OCT Viewer/`. This must be run on the target
 OS (PyInstaller does not cross-compile) - see `.github/workflows/build.yml`
 for the CI setup that builds both Windows and macOS automatically.
 
+### Testing a build before tagging a release
+
+You cannot fully test a macOS `.app` from Windows. Use GitHub Actions instead:
+
+1. Push your changes to `main`.
+2. Open **Actions → Build → Run workflow** (`workflow_dispatch`) - no tag needed.
+3. Wait for the job to finish (macOS is slower: universal arm64 + Intel).
+4. Download the macOS/Windows artifacts from that run and try them (or rely on
+   the CI smoke test, which launches the frozen app and fails on import crashes).
+5. Only then tag `vX.Y.Z` to create the GitHub Release.
+
+CI already checks: universal Mach-O slices, code signature, and a short launch
+smoke test (arm64 + Rosetta x86_64 on macOS).
+
 ## How it works
 
 The `.e2e` format has no public specification. This project combines two
