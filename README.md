@@ -36,8 +36,9 @@ Prebuilt Windows and macOS builds are available under
 [Releases](../../releases) (or as [Actions build artifacts](../../actions)
 for the latest commit).
 
-**macOS note:** builds are not code-signed/notarized (that requires a paid
-Apple Developer account). On first launch, **right-click the app > Open**,
+**macOS note:** builds are universal binaries that run on both Apple Silicon
+(M1/M2/…) and Intel Macs. They are not code-signed/notarized (that requires a
+paid Apple Developer account). On first launch, **right-click the app > Open**,
 then click **Open** in the dialog - double-clicking will refuse to open an
 unsigned app the first time.
 

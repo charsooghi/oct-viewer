@@ -5,6 +5,14 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-16
+
+### Fixed
+
+- macOS builds are now universal binaries (Apple Silicon + Intel) instead of
+  arm64-only, which caused "this application is not supported on this Mac" on
+  Intel Macs.
+
 ## [0.1.3] - 2026-07-15
 
 ### Fixed

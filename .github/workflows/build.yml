@@ -21,7 +21,8 @@ jobs:
           cache: "pip"
           cache-dependency-path: requirements.txt
 
-      - name: Install dependencies
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           pip install -r requirements.txt
@@ -32,7 +33,8 @@ jobs:
         shell: bash
         run: echo "__version__ = \"${GITHUB_REF_NAME#v}\"" > src/oct_viewer/_version.py
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           pyinstaller --noconfirm --onedir --windowed \
@@ -43,6 +45,39 @@ jobs:
             --copy-metadata imageio \
             --hidden-import PySide6.QtSvg \
             src/run_app.py
+
+      - name: Build universal macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          PYI_ARGS=(
+            --noconfirm --onedir --windowed
+            --name "OCT Viewer"
+            --paths src
+            --collect-all oct_converter
+            --collect-all eyepy
+            --copy-metadata imageio
+            --hidden-import PySide6.QtSvg
+          )
+
+          python3 -m venv .venv-arm64
+          source .venv-arm64/bin/activate
+          pip install -r requirements.txt pyinstaller
+          pyinstaller "${PYI_ARGS[@]}" --target-arch arm64 src/run_app.py
+          mv "dist/OCT Viewer.app" "dist/OCT Viewer-arm64.app"
+          deactivate
+
+          arch -x86_64 python3 -m venv .venv-x86
+          source .venv-x86/bin/activate
+          pip install -r requirements.txt pyinstaller
+          arch -x86_64 pyinstaller "${PYI_ARGS[@]}" --target-arch x86_64 src/run_app.py
+          mv "dist/OCT Viewer.app" "dist/OCT Viewer-x86_64.app"
+          deactivate
+
+          bash scripts/merge_universal_app.sh \
+            "dist/OCT Viewer-arm64.app" \
+            "dist/OCT Viewer-x86_64.app" \
+            "dist/OCT Viewer.app"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
