@@ -16,6 +16,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Series without layer segmentation were silently dropped (often the dense
   volume scans), leaving only part of a file's sessions in the series list.
 
+### Added
+
+- Standalone enface images in `.e2e` files (e.g. BAF and extra IR/SLO
+  captures) now appear in the left tree alongside OCT volumes.
+- The left tree groups acquisitions by visit date, with each session listed
+  under its day in chronological order.
+- Selecting an enface-only item shows that image in the main viewer and
+  disables B-scan navigation controls.
+
 ## [0.1.5] - 2026-07-16
 
 ### Fixed

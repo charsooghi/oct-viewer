@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
         self._study: Study | None = None
         self._current_series: Series | None = None
         self._current_index = 0
+        self._nav_enabled = True
         self._contrast = 1.0
         self._brightness = 0.0
         self._worker: LoadWorker | None = None
@@ -146,17 +147,17 @@ class MainWindow(QMainWindow):
         self.frame_spin = QSpinBox()
         self.frame_spin.valueChanged.connect(self._on_spin_changed)
         self.frame_count_label = QLabel("/ 0")
-        prev_btn = QPushButton("< Prev")
-        prev_btn.clicked.connect(lambda: self._step(-1))
-        next_btn = QPushButton("Next >")
-        next_btn.clicked.connect(lambda: self._step(1))
+        self.prev_btn = QPushButton("< Prev")
+        self.prev_btn.clicked.connect(lambda: self._step(-1))
+        self.next_btn = QPushButton("Next >")
+        self.next_btn.clicked.connect(lambda: self._step(1))
 
         nav_layout = QHBoxLayout()
-        nav_layout.addWidget(prev_btn)
+        nav_layout.addWidget(self.prev_btn)
         nav_layout.addWidget(self.slider, stretch=1)
         nav_layout.addWidget(self.frame_spin)
         nav_layout.addWidget(self.frame_count_label)
-        nav_layout.addWidget(next_btn)
+        nav_layout.addWidget(self.next_btn)
 
         # Contrast / brightness
         self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
@@ -167,15 +168,15 @@ class MainWindow(QMainWindow):
         self.brightness_slider.setRange(-100, 100)
         self.brightness_slider.setValue(0)
         self.brightness_slider.valueChanged.connect(self._on_display_changed)
-        reset_btn = QPushButton("Reset")
-        reset_btn.clicked.connect(self._reset_display)
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self._reset_display)
 
         display_layout = QHBoxLayout()
         display_layout.addWidget(QLabel("Contrast"))
         display_layout.addWidget(self.contrast_slider)
         display_layout.addWidget(QLabel("Brightness"))
         display_layout.addWidget(self.brightness_slider)
-        display_layout.addWidget(reset_btn)
+        display_layout.addWidget(self.reset_btn)
 
         center_layout = QVBoxLayout()
         center_layout.addWidget(image_splitter, stretch=1)
@@ -226,10 +227,12 @@ class MainWindow(QMainWindow):
         series_form = QFormLayout(series_box)
         self.lbl_laterality = QLabel("-")
         self.lbl_date = QLabel("-")
+        self.lbl_modality = QLabel("-")
         self.lbl_dims = QLabel("-")
         self.lbl_spacing = QLabel("-")
         series_form.addRow("Laterality:", self.lbl_laterality)
         series_form.addRow("Acquired:", self.lbl_date)
+        series_form.addRow("Modality:", self.lbl_modality)
         series_form.addRow("Dimensions:", self.lbl_dims)
         series_form.addRow("Scale (mm/px):", self.lbl_spacing)
 
@@ -288,18 +291,39 @@ class MainWindow(QMainWindow):
         name = f"{p.first_name} {p.surname}".strip() or "(unnamed patient)"
         patient_item = QTreeWidgetItem([f"{name}  (ID: {p.patient_id})"])
         self.tree.addTopLevelItem(patient_item)
+        by_date: dict[str, list[Series]] = {}
         for series in study.series:
-            item = QTreeWidgetItem([series.label])
-            item.setData(0, SERIES_ROLE, series)
-            patient_item.addChild(item)
+            by_date.setdefault(series.visit_date, []).append(series)
+
+        first_series_item: QTreeWidgetItem | None = None
+        for visit_date in sorted(by_date):
+            date_item = QTreeWidgetItem([visit_date])
+            patient_item.addChild(date_item)
+            for series in sorted(by_date[visit_date], key=lambda s: s.acquisition_date or ""):
+                item = QTreeWidgetItem([series.label])
+                item.setData(0, SERIES_ROLE, series)
+                date_item.addChild(item)
+                if first_series_item is None:
+                    first_series_item = item
+            date_item.setExpanded(True)
         patient_item.setExpanded(True)
-        if patient_item.childCount():
-            self.tree.setCurrentItem(patient_item.child(0))
+        if first_series_item is not None:
+            self.tree.setCurrentItem(first_series_item)
 
         self.lbl_name.setText(name)
         self.lbl_id.setText(p.patient_id)
         self.lbl_dob.setText(p.dob or "-")
         self.lbl_sex.setText(p.sex or "-")
+
+    def _set_bscan_controls_enabled(self, enabled: bool):
+        self._nav_enabled = enabled
+        self.prev_btn.setEnabled(enabled)
+        self.next_btn.setEnabled(enabled)
+        self.slider.setEnabled(enabled)
+        self.frame_spin.setEnabled(enabled)
+        self.contrast_slider.setEnabled(enabled)
+        self.brightness_slider.setEnabled(enabled)
+        self.reset_btn.setEnabled(enabled)
 
     # ------------------------------------------------------------- series
 
@@ -313,31 +337,59 @@ class MainWindow(QMainWindow):
         self._current_series = series
         self._current_index = 0
 
-        self.slider.blockSignals(True)
-        self.slider.setRange(0, series.num_bscans - 1)
-        self.slider.setValue(0)
-        self.slider.blockSignals(False)
-
-        self.frame_spin.blockSignals(True)
-        self.frame_spin.setRange(0, series.num_bscans - 1)
-        self.frame_spin.setValue(0)
-        self.frame_spin.blockSignals(False)
-
-        self.frame_count_label.setText(f"/ {series.num_bscans - 1}")
-
         self.lbl_laterality.setText(series.laterality)
         self.lbl_date.setText(series.acquisition_date or "-")
-        h, w = series.bscans.shape[1:3]
-        self.lbl_dims.setText(f"{series.num_bscans} x {h} x {w}")
-        self.lbl_spacing.setText(f"lateral={series.lateral_scale:.4f}, axial={series.axial_scale:.4f}")
+        self.lbl_modality.setText(series.modality)
 
-        if series.fundus is not None:
-            scale = series.fundus_scale or (1.0, 1.0)
-            self.fundus_view.set_image(series.fundus, pixel_scale_xy=scale)
+        if series.is_volume:
+            self._set_bscan_controls_enabled(True)
+            h, w = series.bscans.shape[1:3]
+            self.lbl_dims.setText(f"{series.num_bscans} x {h} x {w}")
+            self.lbl_spacing.setText(
+                f"lateral={series.lateral_scale:.4f}, axial={series.axial_scale:.4f}"
+            )
+
+            self.slider.blockSignals(True)
+            self.slider.setRange(0, series.num_bscans - 1)
+            self.slider.setValue(0)
+            self.slider.blockSignals(False)
+
+            self.frame_spin.blockSignals(True)
+            self.frame_spin.setRange(0, series.num_bscans - 1)
+            self.frame_spin.setValue(0)
+            self.frame_spin.blockSignals(False)
+
+            self.frame_count_label.setText(f"/ {series.num_bscans - 1}")
+
+            if series.fundus is not None:
+                scale = series.fundus_scale or (1.0, 1.0)
+                self.fundus_view.set_image(series.fundus, pixel_scale_xy=scale)
+            else:
+                self.fundus_view.clear_image()
+
+            self._render_current_frame()
         else:
-            self.fundus_view._scene.clear()
+            self._set_bscan_controls_enabled(False)
+            if series.fundus is not None:
+                h, w = series.fundus.shape[:2]
+                self.lbl_dims.setText(f"{w} x {h}")
+                scale = series.fundus_scale or (1.0, 1.0)
+                self.fundus_view.set_image(
+                    series.fundus,
+                    contrast=self._contrast,
+                    brightness=self._brightness,
+                    pixel_scale_xy=scale,
+                )
+            else:
+                self.lbl_dims.setText("-")
+                self.fundus_view.clear_image()
 
-        self._render_current_frame()
+            self.lbl_spacing.setText("-")
+            self.frame_count_label.setText("/ 0")
+            self.fundus_view.set_overlay_line(None)
+            self.fundus_view.set_overlay_rect(None)
+            self.fundus_view.set_overlay_text(series.modality)
+            self.bscan_view.clear_image()
 
     def _on_index_changed(self, value: int):
         self._current_index = value
@@ -350,11 +402,23 @@ class MainWindow(QMainWindow):
         self.slider.setValue(value)  # triggers _on_index_changed
 
     def _step(self, delta: int):
+        if not self._nav_enabled:
+            return
         self.slider.setValue(self.slider.value() + delta)
 
     def _on_display_changed(self):
         self._contrast = self.contrast_slider.value() / 100.0
         self._brightness = self.brightness_slider.value() / 100.0
+        series = self._current_series
+        if series is not None and not series.is_volume and series.fundus is not None:
+            scale = series.fundus_scale or (1.0, 1.0)
+            self.fundus_view.set_image(
+                series.fundus,
+                contrast=self._contrast,
+                brightness=self._brightness,
+                pixel_scale_xy=scale,
+            )
+            return
         self._render_current_frame()
 
     def _reset_display(self):
@@ -363,7 +427,7 @@ class MainWindow(QMainWindow):
 
     def _render_current_frame(self):
         series = self._current_series
-        if series is None:
+        if series is None or not series.is_volume:
             return
         frame = series.bscans[self._current_index]
         pixel_scale = _bscan_pixel_scale(series)
@@ -427,8 +491,9 @@ class MainWindow(QMainWindow):
         if series is None:
             return
         if which == "fundus" and series.fundus is not None:
-            dlg = PopoutDialog("Fundus / Localizer", series.fundus, series.fundus_scale or (1.0, 1.0), self)
-        elif which == "bscan":
+            title = series.modality if not series.is_volume else "Fundus / Localizer"
+            dlg = PopoutDialog(title, series.fundus, series.fundus_scale or (1.0, 1.0), self)
+        elif which == "bscan" and series.is_volume:
             frame = series.bscans[self._current_index]
             scale = _bscan_pixel_scale(series)
             dlg = PopoutDialog(f"B-scan {self._current_index + 1} / {series.num_bscans}", frame, scale, self)
@@ -445,6 +510,9 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def keyPressEvent(self, event):
+        if not self._nav_enabled:
+            super().keyPressEvent(event)
+            return
         if event.key() == Qt.Key.Key_Left:
             self._step(-1)
         elif event.key() == Qt.Key.Key_Right:

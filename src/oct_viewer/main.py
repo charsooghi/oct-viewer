@@ -10,6 +10,8 @@ from oct_viewer.gui.main_window import MainWindow
 
 def main():
     logging.basicConfig(level=logging.INFO)
+    # eyepy logs this once per series even though we already use its scale values.
+    logging.getLogger("eyepy").setLevel(logging.WARNING)
     app = QApplication(sys.argv)
     app.setApplicationName("OCT Viewer")
     window = MainWindow()

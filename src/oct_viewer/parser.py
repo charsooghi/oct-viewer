@@ -26,6 +26,7 @@ import numpy as np
 
 import oct_viewer._stubs  # noqa: F401 - stub cv2 before oct-converter image_types load
 from eyepy.io.he.e2e_reader import E2ESliceStructure, HeE2eReader
+from eyepy.io.he.e2e_format import TypesEnum
 from oct_converter.readers.binary_structs import e2e_binary
 from oct_converter.readers.e2e import E2E
 
@@ -155,6 +156,92 @@ def _laterality_str(raw) -> str:
     return str(raw) if raw else "?"
 
 
+def _series_laterality(series_struct) -> str:
+    try:
+        raw = (
+            series_struct.laterality()
+            if callable(series_struct.laterality)
+            else series_struct.laterality
+        )
+        return _laterality_str(raw)
+    except Exception:
+        return "?"
+
+
+def _series_text(series_struct, folder_type, index: int = 0) -> str:
+    try:
+        return str(series_struct.folders[folder_type][0].data.text[index]).strip()
+    except (AttributeError, IndexError, KeyError, TypeError):
+        return ""
+
+
+def _series_acquisition_time(series_struct) -> str | None:
+    try:
+        return str(series_struct.slo_data().windate)
+    except Exception:
+        return None
+
+
+def _standalone_enface_image(series_struct) -> np.ndarray | None:
+    """Read the image from a HEYEX ``Images`` series without treating it as OCT."""
+    image_folders = list(series_struct.folders.get(TypesEnum.image, []))
+    for slice_struct in series_struct.slices.values():
+        image_folders.extend(slice_struct.folders.get(TypesEnum.image, []))
+
+    for folder in image_folders:
+        if getattr(folder.data, "type", None) == 33620481:
+            return _to_uint8(folder.data.data)
+    return None
+
+
+def _infer_missing_visit_dates(series_list: list[Series]) -> None:
+    """Fill missing timestamps on standalone enface series from the file's visit day."""
+    dated = [s for s in series_list if s.acquisition_date]
+    if not dated:
+        return
+
+    visit_dates = {s.visit_date for s in dated}
+    if len(visit_dates) != 1:
+        return
+
+    visit_date = next(iter(visit_dates))
+    for series in series_list:
+        if series.acquisition_date:
+            continue
+        # Keep these under the same visit date in the tree even when HEYEX
+        # stores no per-image timestamp on standalone enface captures.
+        series.acquisition_date = f"{visit_date}T00:00:00"
+
+
+def _build_enface_series(series_struct) -> Series | None:
+    image = _standalone_enface_image(series_struct)
+    if image is None:
+        return None
+
+    try:
+        modality = series_struct.enface_modality() or "Enface"
+    except Exception:
+        modality = "Enface"
+    if modality == "NIR":
+        modality = "IR"
+
+    h, w = image.shape[:2]
+    scale = (30.0 / w, 30.0 / h) if h and w else None
+    return Series(
+        volume_id=str(series_struct.id),
+        laterality=_series_laterality(series_struct),
+        acquisition_date=_series_acquisition_time(series_struct),
+        num_bscans=0,
+        lateral_scale=0.0,
+        axial_scale=0.0,
+        bscans=None,
+        fundus=image,
+        modality=modality,
+        scan_pattern=_series_text(series_struct, TypesEnum.scanpattern),
+        fundus_scale=scale,
+    )
+
+
 def _build_series(series_struct) -> Series | None:
     ev = series_struct.get_volume()
     bscans = _to_uint8(ev.data)
@@ -197,7 +284,7 @@ def _build_series(series_struct) -> Series | None:
             lateral_scale = lateral_span / width_px
 
     acquisition_date = positions[0].acquisition_time if positions else None
-    laterality = _laterality_str(series_struct.laterality() if callable(series_struct.laterality) else series_struct.laterality)
+    laterality = _series_laterality(series_struct)
 
     return Series(
         volume_id=str(series_struct.id),
@@ -208,6 +295,8 @@ def _build_series(series_struct) -> Series | None:
         axial_scale=axial_scale,
         bscans=bscans,
         fundus=fundus,
+        modality=_series_text(series_struct, TypesEnum.oct_modality, 1) or "OCT",
+        scan_pattern=_series_text(series_struct, TypesEnum.scanpattern),
         fundus_scale=fundus_scale,
         bscan_positions=positions,
     )
@@ -222,10 +311,11 @@ def load_e2e(path: str) -> Study:
     with reader as opened:
         for series_struct in opened.series:
             n = series_struct.n_bscans
-            if not isinstance(n, int) or n <= 1:
-                continue  # not a real OCT volume (e.g. a lone fundus photo entry)
             try:
-                series = _build_series(series_struct)
+                if isinstance(n, int) and n > 1:
+                    series = _build_series(series_struct)
+                else:
+                    series = _build_enface_series(series_struct)
             except Exception:
                 log.warning("Skipping series %s: failed to decode.", series_struct.id, exc_info=True)
                 continue
@@ -233,6 +323,17 @@ def load_e2e(path: str) -> Study:
                 series_list.append(series)
 
     if not series_list:
-        raise ValueError("No OCT B-scan series could be decoded from this .e2e file.")
+        raise ValueError("No supported OCT or enface image series could be decoded from this .e2e file.")
+
+    _infer_missing_visit_dates(series_list)
+    series_list.sort(
+        key=lambda s: (
+            s.visit_date,
+            0 if s.is_volume else 1,
+            s.acquisition_date or "",
+            s.modality,
+            s.laterality,
+        )
+    )
 
     return Study(source_path=path, patient=patient, series=series_list)

@@ -19,6 +19,8 @@ open it with.
 ## Features
 
 - Open a `.e2e` file and browse every patient/series it contains
+- Browse acquisitions grouped by visit date in the left tree
+- View standalone enface images such as BAF and extra IR/SLO captures
 - View the fundus/IR localizer image alongside the B-scan stack
 - Step through B-scans with a slider, spinbox, arrow keys, or mouse wheel
 - Zoom (mouse wheel) and pan (drag) on both images

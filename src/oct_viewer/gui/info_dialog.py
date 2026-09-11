@@ -22,18 +22,27 @@ class InfoDialog(QDialog):
         rows.append(("Volume/series ID", series.volume_id))
         rows.append(("Laterality", series.laterality))
         rows.append(("Acquired", series.acquisition_date or "-"))
-        h, w = series.bscans.shape[1:3]
-        rows.append(("B-scans", str(series.num_bscans)))
-        rows.append(("B-scan size (px)", f"{w} x {h}"))
-        rows.append(("Lateral scale (mm/px)", f"{series.lateral_scale:.5f}"))
-        rows.append(("Axial scale (mm/px)", f"{series.axial_scale:.5f}"))
+        rows.append(("Modality", series.modality))
+        if series.scan_pattern:
+            rows.append(("Scan pattern", series.scan_pattern))
+        if series.is_volume:
+            h, w = series.bscans.shape[1:3]
+            rows.append(("B-scans", str(series.num_bscans)))
+            rows.append(("B-scan size (px)", f"{w} x {h}"))
+            rows.append(("Lateral scale (deg/px)", f"{series.lateral_scale:.5f}"))
+            rows.append(("Axial scale (mm/px)", f"{series.axial_scale:.5f}"))
         if series.fundus is not None:
             fh, fw = series.fundus.shape[:2]
-            rows.append(("Fundus/localizer size (px)", f"{fw} x {fh}"))
+            label = "Image size (px)" if not series.is_volume else "Fundus/localizer size (px)"
+            rows.append((label, f"{fw} x {fh}"))
         if series.fundus_scale:
-            rows.append(("Fundus scale (mm/px)", f"{series.fundus_scale[0]:.5f}"))
+            rows.append(("Fundus scale (deg/px)", f"{series.fundus_scale[0]:.5f}"))
 
-        if series.bscan_positions and 0 <= bscan_index < len(series.bscan_positions):
+        if (
+            series.is_volume
+            and series.bscan_positions
+            and 0 <= bscan_index < len(series.bscan_positions)
+        ):
             pos = series.bscan_positions[bscan_index]
             rows.append(("", ""))
             rows.append((f"Current B-scan (#{bscan_index})", ""))

@@ -44,6 +44,15 @@ class ImageView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setBackgroundBrush(QColor(20, 20, 20))
 
+    def clear_image(self):
+        """Remove the displayed image without destroying scene items."""
+        self._pixmap_item.setPixmap(QPixmap())
+        self._overlay_line = None
+        self._overlay_rect = None
+        self._overlay_text = None
+        self._scene.setSceneRect(0, 0, 0, 0)
+        self.viewport().update()
+
     def set_image(self, gray_u8: np.ndarray, contrast: float = 1.0, brightness: float = 0.0, pixel_scale_xy: tuple[float, float] = (1.0, 1.0)):
         adjusted = gray_u8.astype(np.float32) * contrast + brightness * 255
         np.clip(adjusted, 0, 255, out=adjusted)
@@ -100,8 +109,14 @@ class ImageView(QGraphicsView):
             painter.restore()
 
     def fit_to_view(self):
-        if not self._pixmap_item.pixmap().isNull():
+        try:
+            if self._pixmap_item.pixmap().isNull():
+                return
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+        except RuntimeError:
+            # A stale reference can survive if the scene was cleared elsewhere.
+            self._pixmap_item = QGraphicsPixmapItem()
+            self._scene.addItem(self._pixmap_item)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
