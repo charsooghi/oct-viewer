@@ -121,8 +121,8 @@ smoke test (arm64 + Rosetta x86_64 on macOS).
 The `.e2e` format has no public specification. This project combines two
 MIT-licensed, independently reverse-engineered readers:
 
-- [`oct-converter`](https://github.com/marksgraham/OCT-Converter) for patient
-  demographics
+- [`oct-converter`](https://github.com/marksgraham/OCT-Converter) for the chunk
+  directory layout and date helpers used to read patient demographics
 - [`eyepy`](https://github.com/MedVisBonn/eyepy) for per-series B-scan pixel
   data, the localizer image, and scan-position metadata
 

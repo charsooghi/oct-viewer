@@ -3,8 +3,11 @@
 The E2E format is undocumented and reverse-engineered, so this combines two
 MIT-licensed libraries that each cover it differently:
 
-- ``oct-converter`` for patient demographics, via its fast ``read_all_metadata``
-  (no pixel decoding), since its patient/date parsing is more complete.
+- ``oct-converter`` for patient demographics: we walk its chunk directory
+  ourselves (see ``_read_patient_chunk``) rather than calling
+  ``read_all_metadata``, which decodes unrelated chunks as strict ASCII/UTF-8
+  and raises on files containing non-ASCII text. Its date helpers are still
+  used, since its birthdate parsing is more complete than eyepy's.
 - ``eyepy``'s low-level ``HeE2eReader`` for everything per-series: B-scan pixel
   data, the localizer/IR image *with its physical scale (mm/px)*, per-B-scan
   scan positions, and laterality. This is what makes the fundus scan-line
@@ -17,16 +20,43 @@ series is dropped with a warning rather than aborting the whole load.
 from __future__ import annotations
 
 import logging
+import struct
 
 import numpy as np
 
 import oct_viewer._stubs  # noqa: F401 - stub cv2 before oct-converter image_types load
-from eyepy.io.he.e2e_reader import HeE2eReader
+from eyepy.io.he.e2e_reader import E2ESliceStructure, HeE2eReader
+from oct_converter.readers.binary_structs import e2e_binary
 from oct_converter.readers.e2e import E2E
 
 from .models import BScanPosition, Patient, Series, Study
 
 log = logging.getLogger(__name__)
+
+_PATIENT_CHUNK_TYPE = 9
+# first_name[31] surname[51] title[15] birthdate:u32 sex[1] patient_id[25]
+_PATIENT_CHUNK_LAYOUT = struct.Struct("<31s51s15sI1s25s")
+
+
+def _allow_unsegmented_slices() -> None:
+    """Let eyepy load B-scans that carry no layer segmentation.
+
+    ``E2ESliceStructure.get_layers`` raises ``KeyError`` instead of returning an
+    empty result when a slice has no layer annotation, which aborts the whole
+    series. The viewer never draws layers, so treating them as absent is safe.
+    """
+    original = E2ESliceStructure.get_layers
+
+    def get_layers(self):
+        try:
+            return original(self)
+        except KeyError:
+            return {}
+
+    E2ESliceStructure.get_layers = get_layers
+
+
+_allow_unsegmented_slices()
 
 
 def _to_uint8(volume: np.ndarray) -> np.ndarray:
@@ -41,14 +71,63 @@ def _to_uint8(volume: np.ndarray) -> np.ndarray:
     return (arr * 255).astype(np.uint8)
 
 
+def _decode_e2e_text(raw: bytes) -> str:
+    """Decode a fixed-width, NUL-padded E2E string field.
+
+    HEYEX writes these in the acquisition machine's Windows code page, not
+    ASCII/UTF-8, so accented names must not abort the load.
+    """
+    return raw.split(b"\x00", 1)[0].decode("cp1252", errors="replace").strip()
+
+
+def _read_patient_chunk(e2e: E2E) -> dict:
+    """Return the first patient-demographics chunk, or ``{}`` if there is none."""
+    with open(e2e.filepath, "rb") as f:
+        for position in e2e.directory_stack:
+            f.seek(position + e2e.byte_skip)
+            directory = e2e_binary.main_directory_structure.parse(f.read(52))
+
+            starts = []
+            for _ in range(directory.num_entries):
+                entry = e2e_binary.sub_directory_structure.parse(f.read(44))
+                if entry.start > entry.pos:
+                    starts.append(entry.start)
+
+            for start in starts:
+                f.seek(start + e2e.byte_skip)
+                try:
+                    chunk = e2e_binary.chunk_structure.parse(f.read(60))
+                except Exception:
+                    continue  # anonymised/truncated chunk headers turn up in the wild
+                if chunk.type != _PATIENT_CHUNK_TYPE:
+                    continue
+
+                raw = f.read(_PATIENT_CHUNK_LAYOUT.size)
+                if len(raw) < _PATIENT_CHUNK_LAYOUT.size:
+                    continue
+                first_name, surname, _title, birthdate, sex, patient_id = (
+                    _PATIENT_CHUNK_LAYOUT.unpack(raw)
+                )
+                return {
+                    "first_name": _decode_e2e_text(first_name),
+                    "surname": _decode_e2e_text(surname),
+                    "birthdate": birthdate,
+                    "sex": _decode_e2e_text(sex),
+                    "patient_id": _decode_e2e_text(patient_id),
+                }
+    return {}
+
+
 def _load_patient(e2e: E2E) -> Patient:
-    meta = e2e.read_all_metadata()
-    records = meta.get("patient_data") or [{}]
-    p = records[0]
+    try:
+        p = _read_patient_chunk(e2e)
+    except Exception:
+        log.warning("Could not read patient demographics.", exc_info=True)
+        p = {}
 
     dob = None
     raw_dob = p.get("birthdate")
-    if raw_dob is not None:
+    if raw_dob:
         try:
             if len(str(raw_dob)) == 8:
                 # Some files store DOB directly as YYYYMMDD.
@@ -60,11 +139,11 @@ def _load_patient(e2e: E2E) -> Patient:
             log.warning("Could not parse patient birthdate.", exc_info=True)
 
     return Patient(
-        patient_id=str(p.get("patient_id", "unknown")),
+        patient_id=p.get("patient_id") or "unknown",
         first_name=p.get("first_name") or "",
         surname=p.get("surname") or "",
         dob=dob,
-        sex=p.get("sex"),
+        sex=p.get("sex") or None,
     )
 
 

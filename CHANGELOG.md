@@ -5,6 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Some `.e2e` files failed to open with a "'utf-8' codec can't decode byte ...
+  invalid start byte" error. Patient demographics were read through a
+  library-wide metadata dump that also decoded unrelated device-info chunks as
+  strict UTF-8, so a single accented character anywhere in the file aborted the
+  load. The viewer now reads only the patient record it needs, and decodes
+  names as Windows-1252, so accented names show correctly.
+- Series without layer segmentation were silently dropped (often the dense
+  volume scans), leaving only part of a file's sessions in the series list.
+
 ## [0.1.5] - 2026-07-16
 
 ### Fixed
