@@ -5,6 +5,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-11
+
 ### Fixed
 
 - Some `.e2e` files failed to open with a "'utf-8' codec can't decode byte ...
