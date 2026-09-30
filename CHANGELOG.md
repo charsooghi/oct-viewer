@@ -5,6 +5,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows/macOS release builds showed enface images (BAF/IR) but no OCT B-scan
+  volumes for some files. Volume loading used eyepy's ``get_volume()``, which
+  depends on layer-segmentation data we do not use; in frozen PyInstaller apps
+  our workaround did not apply, so every volume series was skipped silently.
+  Volumes are now built via ``EyeVolume`` (same intensity scaling as before)
+  without calling ``get_volume()`` / layer segmentation.
+
 ## [0.1.6] - 2026-09-11
 
 ### Fixed

@@ -25,8 +25,10 @@ import struct
 import numpy as np
 
 import oct_viewer._stubs  # noqa: F401 - stub cv2 before oct-converter image_types load
-from eyepy.io.he.e2e_reader import E2ESliceStructure, HeE2eReader
+from eyepy.core.eyevolume import EyeVolume
+from eyepy.io.he.e2e_reader import HeE2eReader
 from eyepy.io.he.e2e_format import TypesEnum
+from eyepy.io.utils import _compute_localizer_oct_transform
 from oct_converter.readers.binary_structs import e2e_binary
 from oct_converter.readers.e2e import E2E
 
@@ -37,27 +39,6 @@ log = logging.getLogger(__name__)
 _PATIENT_CHUNK_TYPE = 9
 # first_name[31] surname[51] title[15] birthdate:u32 sex[1] patient_id[25]
 _PATIENT_CHUNK_LAYOUT = struct.Struct("<31s51s15sI1s25s")
-
-
-def _allow_unsegmented_slices() -> None:
-    """Let eyepy load B-scans that carry no layer segmentation.
-
-    ``E2ESliceStructure.get_layers`` raises ``KeyError`` instead of returning an
-    empty result when a slice has no layer annotation, which aborts the whole
-    series. The viewer never draws layers, so treating them as absent is safe.
-    """
-    original = E2ESliceStructure.get_layers
-
-    def get_layers(self):
-        try:
-            return original(self)
-        except KeyError:
-            return {}
-
-    E2ESliceStructure.get_layers = get_layers
-
-
-_allow_unsegmented_slices()
 
 
 def _to_uint8(volume: np.ndarray) -> np.ndarray:
@@ -242,13 +223,45 @@ def _build_enface_series(series_struct) -> Series | None:
     )
 
 
-def _build_series(series_struct) -> Series | None:
-    ev = series_struct.get_volume()
-    bscans = _to_uint8(ev.data)
+def _oct_display_volume(series_struct) -> tuple[np.ndarray, EyeVolume]:
+    """Return B-scan data with eyepy's intensity transform, without layer I/O.
 
-    localizer = ev.localizer
+    ``get_volume()`` applies the same transform but always reads layer
+    segmentation afterward, which fails on many files (and broke PyInstaller
+    builds when our monkey-patch did not stick).
+    """
+    data = series_struct.get_bscans()
+    volume_meta = series_struct.get_meta()
+    localizer = None
+    try:
+        localizer = series_struct.get_localizer()
+    except Exception:
+        log.warning(
+            "Series %s: could not read localizer for volume transform.",
+            series_struct.id,
+            exc_info=True,
+        )
+    transform = None
+    if localizer is not None:
+        transform = _compute_localizer_oct_transform(
+            volume_meta, localizer.meta, data.shape
+        )
+    volume = EyeVolume(
+        data=data,
+        meta=volume_meta,
+        localizer=localizer,
+        transformation=transform,
+    )
+    return volume.data, volume
+
+
+def _build_series(series_struct) -> Series | None:
+    display_data, volume = _oct_display_volume(series_struct)
+    bscans = _to_uint8(display_data)
+
     fundus = None
     fundus_scale = None
+    localizer = volume.localizer
     if localizer is not None:
         try:
             fundus = _to_uint8(localizer.data)
