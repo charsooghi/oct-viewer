@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import Qt, QThread, Signal, QLineF, QRectF, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QPushButton,
+    QCheckBox,
     QFileDialog,
     QMessageBox,
     QProgressDialog,
@@ -24,6 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from .._version import __version__
+from ..etdrs import (
+    USER_NOTE,
+    bscan_crossings,
+    fundus_rings,
+    lateral_mm_per_px,
+    legend_entries,
+    scale_bar_for,
+)
 from ..models import Study, Series
 from ..parser import load_e2e
 from .image_view import ImageView
@@ -159,6 +168,36 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.frame_count_label)
         nav_layout.addWidget(self.next_btn)
 
+        self.chk_etdrs_fundus = QCheckBox("ETDRS on fundus")
+        self.chk_etdrs_fundus.setToolTip(USER_NOTE)
+        self.chk_etdrs_fundus.setEnabled(False)
+        self.chk_etdrs_bscan = QCheckBox("ETDRS on B-scan")
+        self.chk_etdrs_bscan.setToolTip(
+            "Vertical lines where the current B-scan crosses each ETDRS ring, "
+            "in the same colors as the fundus rings. "
+            + USER_NOTE
+        )
+        self.chk_etdrs_bscan.setEnabled(False)
+        self.chk_scale = QCheckBox("Scale bar")
+        self.chk_scale.setToolTip(
+            USER_NOTE
+            + " B-scan depth in Image Info is the axial scale read from the file (mm per pixel)."
+        )
+        self.chk_scale.setEnabled(False)
+        for box in (self.chk_etdrs_fundus, self.chk_etdrs_bscan, self.chk_scale):
+            box.toggled.connect(self._on_annotation_toggled)
+
+        self.lbl_etdrs_estimate = QLabel("Lateral mm are estimated")
+        self.lbl_etdrs_estimate.setStyleSheet("color: gray;")
+        self.lbl_etdrs_estimate.setToolTip(USER_NOTE)
+
+        annot_layout = QHBoxLayout()
+        annot_layout.addWidget(self.chk_etdrs_fundus)
+        annot_layout.addWidget(self.chk_etdrs_bscan)
+        annot_layout.addWidget(self.chk_scale)
+        annot_layout.addStretch(1)
+        annot_layout.addWidget(self.lbl_etdrs_estimate)
+
         # Contrast / brightness
         self.contrast_slider = QSlider(Qt.Orientation.Horizontal)
         self.contrast_slider.setRange(10, 300)
@@ -180,6 +219,7 @@ class MainWindow(QMainWindow):
 
         center_layout = QVBoxLayout()
         center_layout.addWidget(image_splitter, stretch=1)
+        center_layout.addLayout(annot_layout)
         center_layout.addLayout(nav_layout)
         center_layout.addLayout(display_layout)
         center_widget = QWidget()
@@ -234,7 +274,8 @@ class MainWindow(QMainWindow):
         series_form.addRow("Acquired:", self.lbl_date)
         series_form.addRow("Modality:", self.lbl_modality)
         series_form.addRow("Dimensions:", self.lbl_dims)
-        series_form.addRow("Scale (mm/px):", self.lbl_spacing)
+        self.lbl_spacing.setWordWrap(True)
+        series_form.addRow("Scale:", self.lbl_spacing)
 
         layout.addWidget(patient_box)
         layout.addWidget(series_box)
@@ -336,6 +377,7 @@ class MainWindow(QMainWindow):
             return
         self._current_series = series
         self._current_index = 0
+        self._set_annotation_controls(series)
 
         self.lbl_laterality.setText(series.laterality)
         self.lbl_date.setText(series.acquisition_date or "-")
@@ -346,7 +388,7 @@ class MainWindow(QMainWindow):
             h, w = series.bscans.shape[1:3]
             self.lbl_dims.setText(f"{series.num_bscans} x {h} x {w}")
             self.lbl_spacing.setText(
-                f"lateral={series.lateral_scale:.4f}, axial={series.axial_scale:.4f}"
+                f"{series.lateral_scale:.4f} °/px   ·   {series.axial_scale:.4f} mm/px axial"
             )
 
             self.slider.blockSignals(True)
@@ -390,6 +432,7 @@ class MainWindow(QMainWindow):
             self.fundus_view.set_overlay_rect(None)
             self.fundus_view.set_overlay_text(series.modality)
             self.bscan_view.clear_image()
+            self._refresh_annotations()
 
     def _on_index_changed(self, value: int):
         self._current_index = value
@@ -435,6 +478,7 @@ class MainWindow(QMainWindow):
         frame_text = f"B-scan {self._current_index + 1} / {series.num_bscans}"
         self.bscan_view.set_overlay_text(frame_text)
         self._update_overlay(frame_text)
+        self._refresh_annotations()
 
     def _update_overlay(self, frame_text: str):
         series = self._current_series
@@ -449,15 +493,101 @@ class MainWindow(QMainWindow):
         self.fundus_view.set_overlay_rect(rect)
         self.fundus_view.set_overlay_text(frame_text)
 
+    def _set_annotation_controls(self, series: Series):
+        has_fundus = series.fundus is not None and bool(series.fundus_scale)
+        has_bscan = bool(series.is_volume and series.bscan_positions)
+        has_scale = has_fundus or bool(series.is_volume and series.lateral_scale > 0)
+        self.chk_etdrs_fundus.setEnabled(has_fundus)
+        self.chk_etdrs_bscan.setEnabled(has_bscan)
+        self.chk_scale.setEnabled(has_scale)
+
+    def _on_annotation_toggled(self, _checked: bool = False):
+        self._refresh_annotations()
+        if self.chk_etdrs_fundus.isChecked() or self.chk_etdrs_bscan.isChecked():
+            self.statusBar().showMessage(USER_NOTE)
+
+    def _refresh_annotations(self):
+        """Apply the ETDRS rings, B-scan crossing lines, and scale bars."""
+        self.fundus_view.set_circles(None)
+        self.fundus_view.set_vlines(None)
+        self.fundus_view.set_marker(None)
+        self.fundus_view.set_legend(None)
+        self.fundus_view.set_scale_bar(None)
+        self.bscan_view.set_vlines(None)
+        self.bscan_view.set_legend(None)
+        self.bscan_view.set_scale_bar(None)
+
+        series = self._current_series
+        if series is None:
+            return
+
+        ring_legend = [(QColor(color), name) for name, color in legend_entries()]
+        estimated = (QColor(255, 214, 80), "estimated")
+        fundus_legend: list[tuple[QColor, str]] = []
+        bscan_legend: list[tuple[QColor, str]] = []
+
+        if (
+            self.chk_etdrs_fundus.isEnabled()
+            and self.chk_etdrs_fundus.isChecked()
+            and series.fundus is not None
+            and series.fundus_scale
+        ):
+            h, w = series.fundus.shape[:2]
+            rings = fundus_rings(w, h, series.fundus_scale)
+            self.fundus_view.set_circles(
+                [(r.cx, r.cy, r.rx, r.ry, QColor(r.color_hex)) for r in rings]
+            )
+            if rings:
+                self.fundus_view.set_marker((rings[0].cx, rings[0].cy))
+                fundus_legend = ring_legend + [
+                    (QColor(255, 255, 255), "center = assumed fovea"),
+                    estimated,
+                ]
+
+        if (
+            self.chk_etdrs_bscan.isEnabled()
+            and self.chk_etdrs_bscan.isChecked()
+            and series.is_volume
+            and series.bscan_positions
+            and 0 <= self._current_index < len(series.bscan_positions)
+        ):
+            pos = series.bscan_positions[self._current_index]
+            width = int(series.bscans.shape[2])
+            crossings = bscan_crossings(pos.start_xy, pos.end_xy, width)
+            self.bscan_view.set_vlines([(c.x_px, QColor(c.color_hex)) for c in crossings])
+            bscan_legend = ring_legend + [estimated]
+
+        if self.chk_scale.isEnabled() and self.chk_scale.isChecked():
+            if series.fundus is not None and series.fundus_scale:
+                w = int(series.fundus.shape[1])
+                bar = scale_bar_for(lateral_mm_per_px(series.fundus_scale[0]), w)
+                if bar:
+                    self.fundus_view.set_scale_bar(bar[0], f"est. {bar[1]}")
+                    if estimated not in fundus_legend:
+                        fundus_legend.append(estimated)
+            if series.is_volume and series.lateral_scale > 0:
+                w = int(series.bscans.shape[2])
+                bar = scale_bar_for(lateral_mm_per_px(series.lateral_scale), w)
+                if bar:
+                    self.bscan_view.set_scale_bar(bar[0], f"est. {bar[1]}")
+                    if estimated not in bscan_legend:
+                        bscan_legend.append(estimated)
+
+        if fundus_legend:
+            self.fundus_view.set_legend(fundus_legend)
+        if bscan_legend:
+            self.bscan_view.set_legend(bscan_legend)
+
     @staticmethod
-    def _mm_to_px(x_mm: float, y_mm: float, series: Series) -> tuple[float, float]:
+    def _deg_to_px(x_deg: float, y_deg: float, series: Series) -> tuple[float, float]:
         sx, sy = series.fundus_scale
         h, w = series.fundus.shape[:2]
-        px = w / 2 + x_mm / sx
+        px = w / 2 + x_deg / sx
         # Row direction was verified inverted against real vessel landmarks
-        # (the top scan line was landing on the bottom B-scan) - +y_mm maps
-        # to a larger row, not a smaller one.
-        py = h / 2 + y_mm / sy
+        # (the top scan line was landing on the bottom B-scan) - +y maps
+        # to a larger row, not a smaller one. Coordinates are degrees from
+        # the localizer center, which is what eyepy exposes.
+        py = h / 2 + y_deg / sy
         return px, py
 
     @classmethod
@@ -466,8 +596,8 @@ class MainWindow(QMainWindow):
         if index >= len(positions):
             return None
         p = positions[index]
-        x1, y1 = cls._mm_to_px(*p.start_xy, series)
-        x2, y2 = cls._mm_to_px(*p.end_xy, series)
+        x1, y1 = cls._deg_to_px(*p.start_xy, series)
+        x2, y2 = cls._deg_to_px(*p.end_xy, series)
         return QLineF(x1, y1, x2, y2)
 
     @classmethod
@@ -480,8 +610,8 @@ class MainWindow(QMainWindow):
             xs.extend([p.start_xy[0], p.end_xy[0]])
             ys.extend([p.start_xy[1], p.end_xy[1]])
         corners = [
-            cls._mm_to_px(min(xs), min(ys), series),
-            cls._mm_to_px(max(xs), max(ys), series),
+            cls._deg_to_px(min(xs), min(ys), series),
+            cls._deg_to_px(max(xs), max(ys), series),
         ]
         (x1, y1), (x2, y2) = corners
         return QRectF(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
@@ -492,11 +622,19 @@ class MainWindow(QMainWindow):
             return
         if which == "fundus" and series.fundus is not None:
             title = series.modality if not series.is_volume else "Fundus / Localizer"
-            dlg = PopoutDialog(title, series.fundus, series.fundus_scale or (1.0, 1.0), self)
+            dlg = PopoutDialog(
+                title, series.fundus, series.fundus_scale or (1.0, 1.0), self, self.fundus_view
+            )
         elif which == "bscan" and series.is_volume:
             frame = series.bscans[self._current_index]
             scale = _bscan_pixel_scale(series)
-            dlg = PopoutDialog(f"B-scan {self._current_index + 1} / {series.num_bscans}", frame, scale, self)
+            dlg = PopoutDialog(
+                f"B-scan {self._current_index + 1} / {series.num_bscans}",
+                frame,
+                scale,
+                self,
+                self.bscan_view,
+            )
         else:
             return
         self._popouts.append(dlg)

@@ -9,10 +9,11 @@ MIT-licensed libraries that each cover it differently:
   and raises on files containing non-ASCII text. Its date helpers are still
   used, since its birthdate parsing is more complete than eyepy's.
 - ``eyepy``'s low-level ``HeE2eReader`` for everything per-series: B-scan pixel
-  data, the localizer/IR image *with its physical scale (mm/px)*, per-B-scan
-  scan positions, and laterality. This is what makes the fundus scan-line
-  overlay and the physically-correct B-scan aspect ratio possible - oct-converter
-  doesn't expose localizer calibration.
+  data, the localizer/IR image, per-B-scan scan positions (degrees, origin at
+  the localizer center), and laterality. Eyepy does not read a fovea point,
+  and its localizer scale is a hardcoded 30° field rather than a value stored
+  in the file. This is still what makes the fundus scan-line overlay possible -
+  oct-converter doesn't expose localizer calibration.
 
 Parsing is best-effort throughout: anything that fails to extract for a given
 series is dropped with a warning rather than aborting the whole load.

@@ -37,6 +37,12 @@ class InfoDialog(QDialog):
             rows.append((label, f"{fw} x {fh}"))
         if series.fundus_scale:
             rows.append(("Fundus scale (deg/px)", f"{series.fundus_scale[0]:.5f}"))
+            rows.append(("Fundus field", "30° assumed (eyepy does not read this from the file)"))
+        rows.append((
+            "Lateral mm factor",
+            "Estimated: 288 µm/degree (Spectralis standard eye, not read from the file)",
+        ))
+        rows.append(("Fovea landmark", "Not in the file; ETDRS uses the localizer center"))
 
         if (
             series.is_volume
@@ -46,9 +52,9 @@ class InfoDialog(QDialog):
             pos = series.bscan_positions[bscan_index]
             rows.append(("", ""))
             rows.append((f"Current B-scan (#{bscan_index})", ""))
-            rows.append(("  Start position (mm)", f"{pos.start_xy[0]:.3f}, {pos.start_xy[1]:.3f}"))
-            rows.append(("  End position (mm)", f"{pos.end_xy[0]:.3f}, {pos.end_xy[1]:.3f}"))
-            rows.append(("  Center (mm)", f"{pos.center_xy[0]:.3f}, {pos.center_xy[1]:.3f}"))
+            rows.append(("  Start position (°)", f"{pos.start_xy[0]:.3f}, {pos.start_xy[1]:.3f}"))
+            rows.append(("  End position (°)", f"{pos.end_xy[0]:.3f}, {pos.end_xy[1]:.3f}"))
+            rows.append(("  Center (°)", f"{pos.center_xy[0]:.3f}, {pos.center_xy[1]:.3f}"))
             if pos.quality is not None:
                 rows.append(("  Quality", f"{pos.quality:.3f}"))
             if pos.acquisition_time:

@@ -27,6 +27,9 @@ open it with.
 - Double-click either image to open a larger detail view
 - Scan-position overlay: current B-scan line + full scan-area box on the
   fundus image
+- Optional ETDRS rings (1, 3 and 6 mm) on the fundus image, matching colored
+  lines on the B-scan, and a lateral scale bar. Lateral millimeters are an
+  estimate and are labeled as such. See [ETDRS rings](#etdrs-rings)
 - Contrast/brightness adjustment
 - Patient/series/B-scan metadata table (`View > Image Info`)
 - Packaged as a standalone executable - no Python installation required to
@@ -117,6 +120,63 @@ You cannot fully test a macOS `.app` from Windows. Use GitHub Actions instead:
 
 CI already checks: universal Mach-O slices, code signature, and a short launch
 smoke test (arm64 + Rosetta x86_64 on macOS).
+
+## ETDRS rings
+
+The overlay draws the standard 1, 3 and 6 mm circles on the localizer and
+marks where the current B-scan crosses each circle. The center is the
+localizer coordinate origin. Eyepy does not read a fovea landmark, so that
+origin (the image center) is the assumed fovea.
+
+Lateral millimeters are estimated. The viewer says so next to the checkboxes,
+prints "estimated" on the image, and prefixes the scale bar with "est.".
+B-scan depth, in mm per pixel, is read from the file and is separate from
+this estimate.
+
+The estimate has two parts, and neither is stored as a millimeter scale in
+the `.e2e`:
+
+- Eyepy reports B-scan positions as degrees from the localizer center, and
+  hardcodes the localizer field to 30°. It has not identified the real field
+  size or a lateral mm-per-pixel value in this format. The only B-scan scale
+  it can read is axial (`scale_y`, mm per pixel).
+- Degrees are turned into millimeters with 288 µm per degree, the Spectralis
+  standard eye (axial length 24.385 mm). A nominal 20° scan is often about
+  6 mm in HEYEX; this factor makes it 5.76 mm. Refraction and corneal
+  curvature change the real transverse size, and those adjustments are not
+  applied.
+
+There is no place to type a measurement in by hand. People using this viewer
+normally have only the `.e2e`.
+
+### Follow-up: read the lateral scale from the file
+
+Replace the hardcoded 30° field and `MM_PER_DEG` in
+`src/oct_viewer/etdrs.py` once the `.e2e` actually yields them. The same 30°
+assumption is copied for standalone enface images in `src/oct_viewer/parser.py`.
+Keep the on-image "estimated" label until a decoded value matches a
+known-good export, then drop the label for series where the scale was read.
+
+1. Collect paired data from the same exam: the `.e2e`, a HEYEX `.vol` or
+   `.xml` export (those store localizer `ScaleX` in mm and the field angle),
+   and a HEYEX screenshot of the ETDRS grid. Include more than one field size
+   (for example 20°, 30°, and 55°) and eyes with different refraction, so one
+   hardcoded constant cannot fit every file by accident.
+2. Decode localizer metadata, chunk type 10025. It is 100 bytes: 24 unknown
+   bytes, a timestamp, and a 6-float affine transform. Eyepy parses the
+   transform and does not apply it. Check whether it maps pixels to
+   millimeters or to degrees.
+3. Search the chunk types eyepy still treats as unknown for a mm-per-pixel
+   value or a field angle that matches `ScaleX` and `Angle` in the paired
+   VOL/XML file.
+4. The measurements chunk (type 7) stores refraction and corneal curvature.
+   HEYEX adjusts transverse scale from those, and it does not let the operator
+   replace its preset axial length of 24.385 mm. See whether those two fields
+   reproduce the VOL/XML scale. Axial length itself does not appear to be in
+   the `.e2e`.
+5. When a field matches, use it for the rings and the scale bar, and remove
+   the "estimated" label on that series. Leave the label where the field is
+   missing.
 
 ## How it works
 

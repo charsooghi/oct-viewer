@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- Optional ETDRS overlay for eligibility review. "ETDRS on fundus" draws the
+  1, 3 and 6 mm rings on the localizer (and on standalone enface images), each
+  ring in its own color, with a cross at the center. "ETDRS on B-scan" draws
+  vertical lines where the current B-scan crosses those rings, in the same
+  colors. "Scale bar" draws a lateral scale on both images.
+- The rings are centered on the localizer coordinate origin. Eyepy does not
+  read a fovea landmark from `.e2e` files; that origin is the image center.
+  Lateral millimeters use the Spectralis standard-eye estimate of 288 µm per
+  degree and are labeled "estimated" on the image and "est." on the scale bar.
+  The plan for replacing that estimate from the `.e2e` itself is in the README.
+
+### Fixed
+
+- Image Info labeled B-scan positions as millimeters. Eyepy provides them in
+  degrees from the localizer center. The series panel now states lateral
+  scale in °/px and axial scale in mm/px separately.
+
 ## [0.1.7] - 2026-09-30
 
 ### Fixed
